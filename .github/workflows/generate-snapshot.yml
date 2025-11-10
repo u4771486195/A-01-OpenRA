@@ -18,13 +18,6 @@ jobs:
       # Put each repo on its own line. Duplicates removed automatically.
       REPOS: |
         https://github.com/OpenRA/OpenRA
-        https://github.com/andrewpey/vtland
-        https://github.com/OpenRCT2/OpenRCT2
-        https://github.com/SFTtech/openage
-        https://github.com/OpenLoco/OpenLoco
-        https://github.com/OpenTTD/OpenTTD
-        https://github.com/FreeRCT/FreeRCT
-        https://github.com/openairlinetycoon/OpenATDeluxe
       # Skip big/binary stuff by extension; extend as needed.
       BINARY_EXTS: .ico,.png,.jpg,.jpeg,.gif,.svg,.webp,.mp4,.mov,.avi,.mkv,.ogg,.mp3,.wav,.zip,.7z,.tar,.gz,.bz2,.xz,.rar,.pdf,.woff,.woff2,.ttf,.otf,.dll,.so,.dylib,.exe
       # Skip these folders anywhere in the tree
