@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Raptor 3: OpenRA Master Architecture</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #111827; color: #d1d5db; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { background-color: #1f2937; padding: 1rem 2rem; border-bottom: 1px solid #374151; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: white; margin: 0; }
+    .controls { display: flex; align-items: center; gap: 20px; }
+    .legend { display: flex; gap: 20px; font-size: 12px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .main-container { display: flex; flex-grow: 1; }
+    .panel { min-width: 150px; height: 100%; display: flex; flex-direction: column; position: relative; }
+    .panel:nth-child(1) { flex: 0 1 15%; }
+    .panel:nth-child(3) { flex: 1 1 70%; }
+    .panel:nth-child(5) { flex: 0 1 15%; }
+
+    .splitter { width: 6px; background-color: #374151; cursor: col-resize; flex-shrink: 0; z-index: 100; }
+    .splitter:hover { background-color: #4b5563; }
+    .panel-header { padding: 1rem; text-align: center; border-bottom: 1px solid #374151; background-color: #1f2937; }
+    .panel-header h2 { margin: 0; font-size: 1.5rem; }
+    .header-r2 { color: #fca5a5; }
+    .header-r3 { color: #86efac; }
+    .header-r4 { color: #c4b5fd; }
+    .canvas { position: relative; width: 100%; flex-grow: 1; overflow: hidden; cursor: grab; }
+    .canvas:active { cursor: grabbing; }
+    .connections { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .transform-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; z-index: 2; }
+    
+    .node { position: absolute; border: 3px solid #4b5563; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); font-family: monospace; width: 280px; cursor: move; z-index: 10; user-select: none; padding-top: 30px; }
+    .node h3 { padding: 8px 12px 8px 12px; margin: 0; border-bottom: 1px solid rgba(0,0,0,0.2); border-radius: 8px 8px 0 0; font-size: 14px; color: white; word-break: break-all; }
+    .node h3 .path { font-size: 0.8em; color: #9ca3af; display: block; font-weight: normal; }
+    .node ul { list-style: none; padding: 0; margin: 0; }
+    .node li { display: flex; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; position: relative; }
+    .node li:last-child { border-bottom: none; }
+    .node .col-name { font-weight: 500; }
+    .node .col-type { margin-left: auto; color: #9ca3af; }
+
+    .db-node { background-color: rgba(196, 181, 253, 0.15); border-color: #a78bfa; }
+    .db-node h3 { background-color: #8b5cf6; }
+    
+    .ui-node { background-color: rgba(191, 219, 254, 0.15); border-color: #60a5fa; }
+    .ui-node h3 { background-color: #3b82f6; }
+
+    .code-node { background-color: rgba(134, 239, 172, 0.1); border-color: #4ade80; }
+    .code-node h3 { background-color: #22c55e; }
+
+    .service-node { background-color: rgba(252, 165, 165, 0.1); border-color: #f87171; }
+    .service-node h3 { background-color: #ef4444; }
+    
+    .icon-display { position: absolute; top: -32px; left: 50%; transform: translateX(-50%); font-size: 64px; z-index: 12; pointer-events: none; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Full Stack Designer - OpenRA Master Architecture</h1>
+    <div class="controls">
+        <div class="legend">
+             <div class="legend-item"><svg width="10" height="10" style="background:#3b82f6; border-radius:3px;"></svg> UI</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#22c55e; border-radius:3px;"></svg> Code</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#8b5cf6; border-radius:3px;"></svg> Data/Schema</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#ef4444; border-radius:3px;"></svg> Service</div>
+        </div>
+    </div>
+</div>
+
+<div class="main-container">
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r2">Raptor 2: Legacy</h2></div>
+        <div id="canvas-r2" class="canvas"><svg id="connections-r2" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r3">OpenRA Engine</h2></div>
+        <div id="canvas-r3" class="canvas"><svg id="connections-r3" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r4">Raptor 4: Future</h2></div>
+        <div id="canvas-r4" class="canvas"><svg id="connections-r4" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+</div>
+
+<script>
+// ===================================================================================
+//
+//  MASTER DATA SOURCES
+//
+// ===================================================================================
+/*
+    ARCHITECTURAL INSIGHTS FOR FUTURE AI ANALYSIS:
+    This file visualizes the comprehensive architecture of the OpenRA engine. The design is highly data-driven, following an entity-component-system (Actor-Trait-Activity) pattern where C# code provides core functionality, but game content (units, rules, missions, assets) is defined in external data files.
+
+    **Overall Architectural Philosophy:**
+    The engine separates core logic (C#) from game content and rules (YAML, Lua). This allows for extensive modding without altering the engine's source code. The "database schema" is not a single SQL file but is defined implicitly through C# classes (`*Info.cs`) and populated by human-readable YAML files.
+
+    **Key File Types and Their Roles:**
+    - C# Classes (Core Engine):
+        - `Game.cs`: The main application entry point, responsible for loading mods and maps.
+        - `Ruleset.cs`: The master container for all game rules. It parses YAML files to build an in-memory database of all possible actors, weapons, etc., for a given mod.
+        - `World.cs`: Represents the live game state, managing all actors and the terrain.
+        - `Actor.cs`: The base class for every object in the game (units, buildings, projectiles). It is a container for `Trait`s.
+        - `TraitInfo.cs` / `*Info.cs`: C# classes that act as blueprints for traits, defining the data fields that can be set in YAML.
+        - `Trait`s (e.g., `Mobile.cs`, `Health.cs`, `Armament.cs`): The actual components that give an `Actor` its behavior and properties.
+    - YAML Files (Data/Schema):
+        - `mod.yaml`: The manifest for a mod, listing all rules, assets, missions, and other files to be loaded.
+        - `rules/*.yaml`: Define the concrete game entities (units, buildings). They use `Inherits:` to build upon abstract templates, creating a powerful data-driven inheritance model.
+        - `sequences/*.yaml`: Link game actors to their visual animations and binary sprite files (`.shp`).
+        - `map.yaml`: The instance document for a specific level. It defines the initial state of the world, including every actor's type, location, and owner.
+    - Lua Script Files (`*.lua`):
+        - Contain event-driven mission logic and AI behavior. They interact with the C# engine via Triggers and direct commands, acting as the "business logic" layer for scenarios.
+    - Binary Assets (Services):
+        - `*.shp`: Raw sprite and animation data.
+        - `*.aud`, `*.vqa`: Raw audio and video assets.
+        - `*.bin`: Raw, grid-based terrain geometry for a map.
+
+    **The Data Flow Pipeline:**
+    1.  **Engine Start:** `Game.cs` loads a mod by reading its `mod.yaml` manifest.
+    2.  **Rule Compilation:** `Ruleset.cs` parses all `rules/*.yaml` files specified in the manifest, creating a complete in-memory "database" of all actor and weapon definitions.
+    3.  **Map Instantiation:** The engine loads a `map.yaml` file. For each entry in the `Actors:` list, it queries the `Ruleset` for the actor's full definition and creates a live `Actor.cs` instance in the `World.cs`.
+    4.  **Gameplay Loop:** Player input is translated into `Order`s, which are handled by `Trait`s on an `Actor`. These traits queue `Activity`s (e.g., 'Move', 'Attack') that execute over time, using other traits and core systems (like the `Pathfinder`) to perform their actions.
+    5.  **Asset Linking:** When an `Actor` needs to be rendered, its `Render` traits look up the correct animation in `sequences/*.yaml`, which in turn points to the required binary asset (`.shp` file) to be drawn on screen.
+*/
+const schemaR2 = { tables: [], relationships: [] };
+const schemaR4 = { tables: [], relationships: [] };
+
+const schemaR3 = {
+    tables: [
+        { id: 1, name: "OpenRA.Launcher", path: "OpenRA.Launcher/Program.cs", nodeType: "ui", pos: { x: 50, y: 50 }, icon: "🚀", columns: [ { name: "Main(string[] args)" }, { name: "Game.InitializeAndRun()" } ] },
+        { id: 2, name: "Widget System", path: "OpenRA.Game/Widgets/Widget.cs", nodeType: "ui", pos: { x: 50, y: 350 }, icon: "🖼️", columns: [ { name: "Ui.Tick()" }, { name: "Ui.Draw()" }, { name: "HandleMouseInput()" }, { name: "HandleKeyPress()" } ] },
+        { id: 3, name: "WidgetLoader.cs", path: "OpenRA.Game/Widgets/", nodeType: "ui", pos: { x: 50, y: 650 }, icon: "🧩", columns: [ { name: "LoadWidget()" } ] },
+        { id: 4, name: "WorldInteractionControllerWidget.cs", path: "Widgets/", nodeType: "ui", pos: { x: 50, y: 950 }, icon: "🖱️", columns: [ { name: "HandleMouseInput()" } ] },
+        { id: 5, name: "UnitOrderGenerator.cs", path: "Orders/", nodeType: "ui", pos: { x: 50, y: 1250 }, icon: "📜", columns: [ { name: "Order()" }, { name: "GetCursor()" } ] },
+        { id: 6, name: "mainmenu.yaml", path: "mods/cnc/chrome/", nodeType: "ui", pos: { x: 50, y: 1550 }, icon: "🖥️", columns: [ { name: "SINGLEPLAYER_BUTTON" }, { name: "MULTIPLAYER_BUTTON" } ] },
+        { id: 7, name: "lobby.yaml", path: "mods/cnc/chrome/", nodeType: "ui", pos: { x: 50, y: 1850 }, icon: "🛋️", columns: [ { name: "START_GAME_BUTTON" }, { name: "MAP_PREVIEW_ROOT" } ] },
+        { id: 8, name: "settings.yaml", path: "mods/cnc/chrome/", nodeType: "ui", pos: { x: 50, y: 2150 }, icon: "⚙️", columns: [ { name: "DISPLAY_PANEL" }, { name: "AUDIO_PANEL" }, { name: "HOTKEYS_PANEL" } ] },
+        { id: 9, name: "RenderSprites.cs", path: "Traits/Render/", nodeType: "ui", pos: { x: 50, y: 2450 }, icon: "🖼️", columns: [ { name: "Render()" } ] },
+        { id: 10, name: "WithSpriteBody.cs", path: "Traits/Render/", nodeType: "ui", pos: { x: 50, y: 2750 }, icon: "🧍", columns: [ { name: "DefaultAnimation" } ] },
+        { id: 11, name: "ingame-player.yaml", path: "mods/ra/chrome/", nodeType: "ui", pos: { x: 50, y: 3050 }, icon: "🖥️", columns: [ { name: "@SIDEBAR_PRODUCTION" }, { name: "@COMMAND_BAR" } ] },
+        { id: 12, name: "map.ftl", path: "bomber-john/", nodeType: "ui", pos: { x: 50, y: 3350 }, icon: "💬", columns: [ { name: "actor-mnlyr-name = Bomber" }, { name: "actor-minvv.name = Bomb" } ] },
+        { id: 13, name: "Game.cs", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 50 }, icon: "🎮", columns: [ { name: "InitializeAndRun()" }, { name: "Loop()" }, { name: "LogicTick()" }, { name: "RenderTick()" }, { name: "LoadMap(mapName)" }, { name: "StartGame()" } ] },
+        { id: 14, name: "World.cs", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 350 }, icon: "🌍", columns: [ { name: "Tick()" }, { name: "CreateActor()" }, { name: "SyncHash()" }, { name: "CreateActor(actorInfo)" }, { name: "LoadTerrain(mapData)" } ] },
+        { id: 15, name: "Actor.cs", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 650 }, icon: "🤖", columns: [ { name: "Tick()" }, { name: "ResolveOrder()" }, { name: "TraitsImplementing<T>()" }, { name: "LoadPassenger()" }, { name: "Destroy()" }, { name: "IsDead" }, { name: "Owner" }, { name: "Location" }, { name: "Move()" }, { name: "AttackMove()" }, { name: "Build()" }, { name: "Demolish()" }, { name: "Infiltrate()" }, { name: "Health" }, { name: "TransformsInto" }, { name: "FireWarheadsOnDeath" }, { name: "Produce(unit)" }, { name: "GrantCondition('unkillable')" }, { name: "Capture()" }, { name: "Sell()" }, { name: "ActivateNukePower()" }, { name: "Info (ActorInfo)" } ] },
+        { id: 16, name: "Player.cs", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 950 }, icon: "🧑", columns: [ { name: "PlayerName" }, { name: "Faction" }, { name: "RelationshipWith()" } ] },
+        { id: 17, name: "OrderManager.cs", path: "OpenRA.Game/Network/", nodeType: "code", pos: { x: 450, y: 1250 }, icon: "📦", columns: [ { name: "IssueOrder()" }, { name: "ReceiveOrders()" }, { name: "TryTick()" } ] },
+        { id: 18, name: "WorldRenderer.cs", path: "OpenRA.Game/Graphics/", nodeType: "code", pos: { x: 450, y: 1550 }, icon: "🎨", columns: [ { name: "PrepareRenderables()" }, { name: "Draw()" }, { name: "ScreenPxPosition()" } ] },
+        { id: 19, name: "TraitDictionary.cs", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 1850 }, icon: "📚", columns: [ { name: "AddTrait()" }, { name: "Get<T>()" }, { name: "ActorsWithTrait<T>()" } ] },
+        { id: 20, name: "Activity.cs", path: "OpenRA.Game/Activities/", nodeType: "code", pos: { x: 450, y: 2150 }, icon: "🏃", columns: [ { name: "TickOuter()" }, { name: "OnFirstRun()" }, { name: "Cancel()" }, { name: "ScriptedMove()" }, { name: "Wait()" } ] },
+        { id: 21, name: "Connection.cs", path: "OpenRA.Game/Network/", nodeType: "code", pos: { x: 450, y: 2450 }, icon: "🔌", columns: [ { name: "Send()" }, { name: "Receive()" } ] },
+        { id: 22, name: "Sound.cs", path: "OpenRA.Game/Sound/", nodeType: "code", pos: { x: 450, y: 2750 }, icon: "🔊", columns: [ { name: "Play()" }, { name: "PlayMusic()" } ] },
+        { id: 23, name: "Manifest.cs (Mod Definition)", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 3050 }, icon: "📦", columns: [ { name: "Rules" }, { name: "Sequences" }, { name: "Weapons" }, { name: "Chrome" } ] },
+        { id: 24, name: "Sandworm.cs (Mod Trait)", path: "OpenRA.Mods.D2k/Traits/", nodeType: "code", pos: { x: 450, y: 3350 }, icon: "🐛", columns: [ { name: "Tick()" }, { name: "RescanForTargets()" } ] },
+        { id: 25, name: "AttractsWorms.cs (Mod Trait)", path: "OpenRA.Mods.D2k/Traits/", nodeType: "code", pos: { x: 450, y: 3650 }, icon: "🔊", columns: [ { name: "Intensity" }, { name: "AttractionAtPosition()" } ] },
+        { id: 26, name: "campaign.lua", path: "mods/cnc/scripts/", nodeType: "code", pos: { x: 450, y: 3950 }, icon: "📜", columns: [ { name: "InitObjectives()" }, { name: "ReinforceWithLandingCraft()" }, { name: "ProduceUnits()" }, { name: "CheckForBase()" }, { name: "InitObjectives(player)" }, { name: "ReinforceWithTransport(...)" } ] },
+        { id: 27, name: "nod09.lua", path: "mods/cnc/maps/nod09/", nodeType: "code", pos: { x: 450, y: 4250 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "SendGDIAirstrike()" }, { name: "CheckForSams()" } ] },
+        { id: 28, name: "allies08b.lua", path: "allies-08b/", nodeType: "code", pos: { x: 450, y: 4550 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "Tick() (Timer)" }, { name: "CreateScientists()" }, { name: "DefendChronosphereCompleted()" }, { name: "Trigger.OnAnyKilled(...)" }, { name: "Trigger.OnEnteredFootprint(...)" } ] },
+        { id: 29, name: "allies08b-AI.lua", path: "allies-08b/", nodeType: "code", pos: { x: 450, y: 4850 }, icon: "🧠", columns: [ { name: "ActivateAI()" }, { name: "ProduceInfantry()" }, { name: "ProduceVehicles()" }, { name: "GroundWaves()" }, { name: "WTransWaves()" } ] },
+        { id: 30, name: "Game.cs (Engine Entry)", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 5150 }, icon: "🎮", columns: [ { name: "Main()" }, { name: "LoadMod(modId)" }, { name: "LoadMap(mapName)" } ] },
+        { id: 31, name: "Ruleset.cs (Data Loader)", path: "OpenRA.Game/GameRules/", nodeType: "code", pos: { x: 450, y: 5450 }, icon: "📚", columns: [ { name: "LoadFromMod()" }, { name: "ActorInfoFor(actorName)" } ] },
+        { id: 32, name: "World.cs (Game State)", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 5750 }, icon: "🌍", columns: [ { name: "CreateActor(actorInfo)" }, { name: "Tick()" } ] },
+        { id: 33, name: "Actor.cs (Game Object)", path: "OpenRA.Game/", nodeType: "code", pos: { x: 450, y: 6050 }, icon: "🤖", columns: [ { name: "Info (ActorInfo)" }, { name: "Owner" }, { name: "Location" } ] },
+        { id: 34, name: "allies05c.lua", path: "allies-05c/", nodeType: "code", pos: { x: 450, y: 6350 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "InitTriggers()" }, { name: "Trigger.OnInfiltrated(Warfactory,..)" }, { name: "Trigger.OnInfiltrated(Prison,..)" }, { name: "WarfactoryInfiltrated()" }, { name: "FreeTanya()" }, { name: "SendReinforcements()" } ] },
+        { id: 35, name: "allies05c-AI.lua", path: "allies-05c/", nodeType: "code", pos: { x: 450, y: 6650 }, icon: "🧠", columns: [ { name: "ActivateAI()" }, { name: "ProduceUSSRInfantry()" }, { name: "ProduceUSSRVehicles()" }, { name: "SendAttackGroup()" } ] },
+        { id: 36, name: "allies10a.lua", path: "allies-10a/", nodeType: "code", pos: { x: 450, y: 6950 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "MissionStart()" }, { name: "MissionTriggers()" }, { name: "Trigger.OnEnteredProximityTrigger(...)" }, { name: "LaunchMissiles()" }, { name: "ActivateAI()" } ] },
+        { id: 37, name: "allies10a-AI.lua", path: "allies-10a/", nodeType: "code", pos: { x: 450, y: 7250 }, icon: "🧠", columns: [ { name: "ActivateAI()" }, { name: "ProduceInfantry()" }, { name: "ProduceVehicles()" }, { name: "SendAttackGroup()" }, { name: "Paradrop()" } ] },
+        { id: 38, name: "atreides05.lua", path: "atreides-05/", nodeType: "code", pos: { x: 450, y: 7550 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "SendHarkonnen()" }, { name: "SendMercenaries()" }, { name: "Trigger.OnCapture(Starport,...)" }, { name: "Trigger.OnKilled(HarkonnenBarracks,...)" } ] },
+        { id: 39, name: "atreides05-AI.lua", path: "atreides-05/", nodeType: "code", pos: { x: 450, y: 7850 }, icon: "🧠", columns: [ { name: "ActivateAI()" }, { name: "ProduceInfantry()" }, { name: "SendAttack()" } ] },
+        { id: 40, name: "harkonnen09a.lua", path: "harkonnen-09a/", nodeType: "code", pos: { x: 450, y: 8150 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "Trigger.AfterDelay(...)" }, { name: "SendAirStrike()" }, { name: "BuildFremen()" }, { name: "SendHarkonnenReinforcements()" }, { name: "ActivateAI()" } ] },
+        { id: 41, name: "harkonnen09a-AI.lua", path: "harkonnen-09a/", nodeType: "code", pos: { x: 450, y: 8450 }, icon: "🧠", columns: [ { name: "ActivateAI()" }, { name: "DefendAndRepairBase(...)" }, { name: "ProduceUnits(AtreidesMain, ...)" }, { name: "ProduceUnits(CorrinoMain, ...)" } ] },
+        { id: 42, name: "ordos05.lua", path: "ordos-05/", nodeType: "code", pos: { x: 450, y: 8750 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "Tick()" }, { name: "Trigger.OnCapture(AStarport,...)" }, { name: "Trigger.OnKilled(AStarport,...)" }, { name: "ActivateAI()" } ] },
+        { id: 43, name: "ordos05-AI.lua", path: "ordos-05/", nodeType: "code", pos: { x: 450, y: 9050 }, icon: "🧠", columns: [ { name: "ActivateAI()" }, { name: "ActivateAIProduction()" }, { name: "ProduceUnits(AtreidesMain,...)" }, { name: "DefendAndRepairBase(...)" } ] },
+        { id: 44, name: "allies06b.lua", path: "allies-06b/", nodeType: "code", pos: { x: 450, y: 9350 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "InfiltrateTechCenter()" }, { name: "Trigger.OnInfiltrated(a, ...)" }, { name: "Trigger.OnCapture(RadarDome, ...)" }, { name: "ActivateAI()" } ] },
+        { id: 45, name: "allies06b-AI.lua", path: "allies-06b/", nodeType: "code", pos: { x: 450, y: 9650 }, icon: "🧠", columns: [ { name: "ActivateAI()" }, { name: "ProduceInfantry()" }, { name: "ProduceVehicles()" }, { name: "WTransWaves()" }, { name: "SendAttack(units, path)" } ] },
+        { id: 46, name: "soviet04a.lua", path: "soviet-04a/", nodeType: "code", pos: { x: 450, y: 9950 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "RunInitialActivities()" }, { name: "Trigger.OnKilled(RadarDome, ...)" }, { name: "Trigger.OnAllKilled(Village, ...)" } ] },
+        { id: 47, name: "soviet04a-AI.lua", path: "soviet-04a/", nodeType: "code", pos: { x: 450, y: 10250 }, icon: "🧠", columns: [ { name: "BuildBase()" }, { name: "ProduceInfantry()" }, { name: "ProduceArmor()" }, { name: "SendUnits(units, waypoints)" } ] },
+        { id: 48, name: "soviet04a-reinforcements.lua", path: "soviet-04a/", nodeType: "code", pos: { x: 450, y: 10550 }, icon: "✈️", columns: [ { name: "ReinfInf()" }, { name: "ReinfArmor()" }, { name: "BringPatrol1()" } ] },
+        { id: 49, name: "Order.cs", path: "(Core Engine)", nodeType: "code", pos: { x: 450, y: 10850 }, icon: "📦", columns: [ { name: "OrderString" }, { name: "Subject (Actor)" }, { name: "Target" } ] },
+        { id: 50, name: "Actor.cs (Core)", path: "(Core Engine)", nodeType: "code", pos: { x: 450, y: 11150 }, icon: "🤖", columns: [ { name: "QueueActivity()" }, { name: "Tick() -> Tick activities" }, { name: "TraitsImplementing<T>()" } ] },
+        { id: 51, name: "Move.cs (Activity)", path: "Activities/Move/", nodeType: "code", pos: { x: 450, y: 11450 }, icon: "🏃", columns: [ { name: "Tick()" }, { name: "Uses -> IMove" } ] },
+        { id: 52, name: "Attack.cs (Activity)", path: "Activities/", nodeType: "code", pos: { x: 450, y: 11750 }, icon: "💥", columns: [ { name: "Tick()" }, { name: "Uses -> AttackBase" } ] },
+        { id: 53, name: "Mobile.cs (IResolveOrder)", path: "Traits/", nodeType: "code", pos: { x: 450, y: 12050 }, icon: "➡️", columns: [ { name: "ResolveOrder('Move')" }, { name: "PathFinder.FindPath()" } ] },
+        { id: 54, name: "AttackFollow.cs (IResolveOrder)", path: "Traits/Attack/", nodeType: "code", pos: { x: 450, y: 12350 }, icon: "🎯", columns: [ { name: "ResolveOrder('Attack')" }, { name: "DoAttack()" } ] },
+        { id: 55, name: "Armament.cs", path: "Traits/", nodeType: "code", pos: { x: 450, y: 12650 }, icon: "🔫", columns: [ { name: "CheckFire()" }, { name: "WeaponInfo" } ] },
+        { id: 56, name: "Health.cs", path: "Traits/", nodeType: "code", pos: { x: 450, y: 12950 }, icon: "❤️", columns: [ { name: "InflictDamage()" } ] },
+        { id: 57, name: "HierarchicalPathFinder.cs", path: "Pathfinder/", nodeType: "code", pos: { x: 450, y: 13250 }, icon: "🗺️", columns: [ { name: "FindPath()" } ] },
+        { id: 58, name: "Live Game World", path: "(In Memory)", nodeType: "code", pos: { x: 450, y: 13550 }, icon: "💡", columns: [ { name: "Rendered Terrain" }, { name: "Actor Instances" }, { name: "Player States" } ] },
+        { id: 59, name: "fields-of-green.lua", path: "fields-of-green/", nodeType: "code", pos: { x: 450, y: 13850 }, icon: "📜", columns: [ { name: "WorldLoaded()" }, { name: "SetupFactories()" }, { name: "SetupInvulnerability()" }, { name: "ProduceUnits(factory, units)" }, { name: "SendNodInfantry()" }, { name: "SendGDIVehicles()" }, { name: "BindActorTriggers(actor, loc)" } ] },
+        { id: 60, name: "Ruleset.cs", path: "OpenRA.Game/GameRules/", nodeType: "db", pos: { x: 850, y: 50 }, icon: "📜", columns: [ { name: "Actors (Dictionary)" }, { name: "Weapons (Dictionary)" }, { name: "LoadDefaults()" } ] },
+        { id: 61, name: "ActorInfo.cs", path: "OpenRA.Game/GameRules/", nodeType: "db", pos: { x: 850, y: 350 }, icon: "📝", columns: [ { name: "Name" }, { name: "TraitsInConstructOrder()" }, { name: "TraitInfo<T>()" } ] },
+        { id: 62, name: "TraitInfo.cs", path: "OpenRA.Game/Traits/", nodeType: "db", pos: { x: 850, y: 650 }, icon: "🔧", columns: [ { name: "Create(ActorInitializer)" }, { name: "Requires<T>" }, { name: "NotBefore<T>" } ] },
+        { id: 63, name: "Map.cs", path: "OpenRA.Game/Map/", nodeType: "db", pos: { x: 850, y: 950 }, icon: "🗺️", columns: [ { name: "MapSize" }, { name: "Tiles (CellLayer)" }, { name: "Height (CellLayer)" }, { name: "Actors (Definitions)" } ] },
+        { id: 64, name: "MiniYaml.cs", path: "OpenRA.Game/", nodeType: "db", pos: { x: 850, y: 1250 }, icon: "📄", columns: [ { name: "FromFile()" }, { name: "FromStream()" }, { name: "Merge()" } ] },
+        { id: 65, name: "FieldLoader.cs", path: "OpenRA.Game/", nodeType: "db", pos: { x: 850, y: 1550 }, icon: "📥", columns: [ { name: "Load(object, MiniYaml)" }, { name: "GetValue<T>()" } ] },
+        { id: 66, name: "WeaponInfo.cs", path: "OpenRA.Game/GameRules/", nodeType: "db", pos: { x: 850, y: 1850 }, icon: "💥", columns: [ { name: "Range" }, { name: "Projectile" }, { name: "Warheads" } ] },
+        { id: 67, name: "Order.cs", path: "OpenRA.Game/Network/", nodeType: "db", pos: { x: 850, y: 2150 }, icon: "➡️", columns: [ { name: "OrderString" }, { name: "Subject" }, { name: "Target" }, { name: "Serialize()" } ] },
+        { id: 68, name: "temperat.yaml", path: "mods/cnc/tilesets/", nodeType: "db", pos: { x: 850, y: 2450 }, icon: "🏞️", columns: [ { name: "General (Tileset Def)" }, { name: "Terrain (Types)" }, { name: "Templates (Tile Rules)" }, { name: "MultiBrushCollections" } ] },
+        { id: 69, name: "ai.yaml", path: "mods/cnc/rules/", nodeType: "db", pos: { x: 850, y: 2750 }, icon: "🧠", columns: [ { name: "ModularBot Definitions" }, { name: "SupportPowerBotModule" }, { name: "BaseBuilderBotModule" }, { name: "UnitBuilderBotModule" } ] },
+        { id: 70, name: "aircraft.yaml", path: "mods/cnc/rules/", nodeType: "db", pos: { x: 850, y: 3050 }, icon: "✈️", columns: [ { name: "TRAN (Transport)" }, { name: "HELI (Apache)" }, { name: "ORCA (Orca)" }, { name: "C17 (Cargo Plane)" } ] },
+        { id: 71, name: "nod09/map.yaml", path: "mods/cnc/maps/", nodeType: "db", pos: { x: 850, y: 3350 }, icon: "🗺️", columns: [ { name: "Title: Reinforce Egypt" }, { name: "Tileset: DESERT" }, { name: "Players: GDI, Nod" }, { name: "Actors: ..." }, { name: "Rules: nod09.lua" } ] },
+        { id: 72, name: "world.yaml", path: "mods/cnc/rules/", nodeType: "db", pos: { x: 850, y: 3650 }, icon: "📜", columns: [ { name: "Locomotor@FOOT" }, { name: "Locomotor@WHEELED" } ] },
+        { id: 73, name: "player.yaml", path: "mods/cnc/rules/", nodeType: "db", pos: { x: 850, y: 3950 }, icon: "🧑‍⚖️", columns: [ { name: "^BasePlayer" }, { name: "SupportPowerManager" } ] },
+        { id: 74, name: "infantry.yaml", path: "mods/cnc/rules/", nodeType: "db", pos: { x: 850, y: 4250 }, icon: "🚶", columns: [ { name: "E1: ^Soldier" }, { name: "Cost: 100" }, { name: "Weapon: M16" } ] },
+        { id: 75, name: "vehicles.yaml", path: "mods/cnc/rules/", nodeType: "db", pos: { x: 850, y: 4550 }, icon: "🚚", columns: [ { name: "MCV: ^Vehicle" }, { name: "Transforms: IntoActor: fact" } ] },
+        { id: 76, name: "structures.yaml", path: "mods/cnc/rules/", nodeType: "db", pos: { x: 850, y: 4850 }, icon: "🏗️", columns: [ { name: "FACT: ^BaseBuilding" }, { name: "Production:" }, { name: "Power:" } ] },
+        { id: 77, name: "infantry.yaml (Sequences)", path: "mods/cnc/sequences/", nodeType: "db", pos: { x: 850, y: 5150 }, icon: "🎬", columns: [ { name: "e1:" }, { name: "stand: Facings: 8" }, { name: "run: Length: 6" } ] },
+        { id: 78, name: "vehicles.yaml (Sequences)", path: "mods/cnc/sequences/", nodeType: "db", pos: { x: 850, y: 5450 }, icon: "🎬", columns: [ { name: "mcv:" }, { name: "idle: Facings: 32" } ] },
+        { id: 79, name: "map.yaml", path: "allies-08b/", nodeType: "db", pos: { x: 850, y: 5750 }, icon: "🗺️", columns: [ { name: "Title: Protect the Chronosphere" }, { name: "Players: Greece, USSR, England" }, { name: "Chronosphere: pdox" }, { name: "USSRWarFactory: weap" }, { name: "AttackChrono: waypoint" }, { name: "Rules: rules.yaml" } ] },
+        { id: 80, name: "rules.yaml", path: "allies-08b/", nodeType: "db", pos: { x: 850, y: 6050 }, icon: "🔧", columns: [ { name: "LuaScript:" }, { name: "  Scripts: allies08b.lua" }, { name: "           allies08b-AI.lua" }, { name: "MissionData: BriefingVideo: ally8.vqa" }, { name: "MCV: Buildable: ~disabled" } ] },
+        { id: 81, name: "mod.yaml (Mod Manifest)", path: "mods/ts/mod.yaml", nodeType: "db", pos: { x: 850, y: 6350 }, icon: "📦", columns: [ { name: "Title: Tiberian Sun" }, { name: "Rules: [...]" }, { name: "Sequences: [...]" }, { name: "Weapons: [...]" }, { name: "Missions: missions.yaml" } ] },
+        { id: 82, name: "missions.yaml (Mission List)", path: "mods/ra/missions.yaml", nodeType: "db", pos: { x: 850, y: 6650 }, icon: "📄", columns: [ { name: "Allied Campaign:" }, { name: "  allies-01" }, { name: "Soviet Campaign:" }, { name: "  soviet-01" } ] },
+        { id: 83, name: "map.yaml (Level Instance)", path: "maps/sunstroke/map.yaml", nodeType: "db", pos: { x: 850, y: 6950 }, icon: "🗺️", columns: [ { name: "RequiresMod: ts" }, { name: "Tileset: TEMPERATE" }, { name: "Actors:" }, { name: "  Actor615: mpspawn" }, { name: "  Actor627: trock05" } ] },
+        { id: 84, name: "defaults.yaml (Base Types)", path: "mods/ts/rules/", nodeType: "db", pos: { x: 850, y: 7250 }, icon: "📜", columns: [ { name: "^Infantry" }, { name: "^Vehicle" }, { name: "^Building" } ] },
+        { id: 85, name: "vehicles.yaml (Concrete Types)", path: "mods/ts/rules/", nodeType: "db", pos: { x: 850, y: 7550 }, icon: "🚚", columns: [ { name: "4TNK (Mammoth Tank)" }, { name: "Inherits: ^Vehicle" }, { name: "Armament: Weapon: 120mm" }] },
+        { id: 86, name: "weapons.yaml (Component Data)", path: "mods/ts/weapons/", nodeType: "db", pos: { x: 850, y: 7850 }, icon: "💥", columns: [ { name: "120mm:" }, { name: "ReloadDelay: 80" }, { name: "Range: 6c768" } ] },
+        { id: 87, name: "sequences/vehicles.yaml", path: "mods/ts/sequences/", nodeType: "db", pos: { x: 850, y: 8150 }, icon: "🎬", columns: [ { name: "4tnk:" }, { name: "  idle: ..." }, { name: "  Filename: 4tnk.shp" } ] },
+        { id: 88, name: "map.yaml", path: "allies-05c/", nodeType: "db", pos: { x: 850, y: 8450 }, icon: "🗺️", columns: [ { name: "Title: Tanya's Tale" }, { name: "Players: Greece, USSR" }, { name: "Prison: miss" }, { name: "Warfactory: weap.infiltratable" }, { name: "Truk: truk.mission" }, { name: "TrukWaypoint1: waypoint" }, { name: "Rules: rules.yaml" } ] },
+        { id: 89, name: "rules.yaml", path: "allies-05c/", nodeType: "db", pos: { x: 850, y: 8750 }, icon: "🔧", columns: [ { name: "LuaScript:" }, { name: "  Scripts: allies05c.lua" }, { name: "           allies05c-AI.lua" }, { name: "BriefingVideo: ally5.vqa" }, { name: "WEAP.infiltratable: ..." } ] },
+        { id: 90, name: "map.yaml", path: "allies-10a/", nodeType: "db", pos: { x: 850, y: 9050 }, icon: "🗺️", columns: [ { name: "Title: Suspicion" }, { name: "Players: Greece, USSR, BadGuy" }, { name: "CommandCenter: fcom" }, { name: "MissileSilo1: mslo" }, { name: "FCom: waypoint" }, { name: "Rules: rules.yaml" } ] },
+        { id: 91, name: "rules.yaml", path: "allies-10a/", nodeType: "db", pos: { x: 850, y: 9350 }, icon: "🔧", columns: [ { name: "LuaScript:" }, { name: "  Scripts: allies10a.lua" }, { name: "           allies10a-AI.lua" }, { name: "BriefingVideo: ally10.vqa" }, { name: "MCV: Buildable: ~disabled" } ] },
+        { id: 92, name: "map.yaml", path: "atreides-05/", nodeType: "db", pos: { x: 850, y: 9650 }, icon: "🗺️", columns: [ { name: "Title: Atreides 05" }, { name: "Players: Atreides, Harkonnen,.." }, { name: "HarkonnenBarracks: barracks" }, { name: "Starport: starport" }, { name: "HarkonnenRally1: waypoint" }, { name: "Rules: rules.yaml" } ] },
+        { id: 93, name: "rules.yaml", path: "atreides-05/", nodeType: "db", pos: { x: 850, y: 9950 }, icon: "🔧", columns: [ { name: "LuaScript:" }, { name: "  Scripts: atreides05.lua" }, { name: "           atreides05-AI.lua" }, { name: "BriefingVideo: A_BR05_E.VQA" } ] },
+        { id: 94, name: "map.yaml", path: "harkonnen-09a/", nodeType: "db", pos: { x: 850, y: 10250 }, icon: "🗺️", columns: [ { name: "Title: Harkonnen 09a" }, { name: "Players: Harkonnen, Atreides, Corrino" }, { name: "HMCV: mcv" }, { name: "APalace: palace" }, { name: "CStarport: starport" }, { name: "HarkonnenRally: waypoint" }, { name: "Rules: rules.yaml" } ] },
+        { id: 95, name: "rules.yaml", path: "harkonnen-09a/", nodeType: "db", pos: { x: 850, y: 10550 }, icon: "🔧", columns: [ { name: "LuaScript:" }, { name: "  Scripts: harkonnen09a.lua" }, { name: "           harkonnen09a-AI.lua" }, { name: "BriefingVideo: H_BR09_E.VQA" } ] },
+        { id: 96, name: "map.yaml", path: "ordos-05/", nodeType: "db", pos: { x: 850, y: 10850 }, icon: "🗺️", columns: [ { name: "Title: Ordos 05" }, { name: "Players: Ordos, AtreidesMainBase..." }, { name: "AConyard: construction_yard" }, { name: "AStarport: starport" }, { name: "AtreidesRally1: waypoint" }, { name: "Rules: rules.yaml" } ] },
+        { id: 97, name: "rules.yaml", path: "ordos-05/", nodeType: "db", pos: { x: 850, y: 11150 }, icon: "🔧", columns: [ { name: "LuaScript:" }, { name: "  Scripts: ordos05.lua" }, { name: "           ordos05-AI.lua" }, { name: "BriefingVideo: O_BR05_E.VQA" } ] },
+        { id: 98, name: "map.yaml", path: "soviet-04a/", nodeType: "db", pos: { x: 850, y: 11450 }, icon: "🗺️", columns: [ { name: "Title: Behind the Lines" }, { name: "RadarDome: dome" }, { name: "CYard: fact" }, { name: "village1: v11" }, { name: "StartPoint: waypoint" }, { name: "Rules: rules.yaml" } ] },
+        { id: 99, name: "rules.yaml", path: "soviet-04a/", nodeType: "db", pos: { x: 850, y: 11750 }, icon: "🔧", columns: [ { name: "LuaScript:" }, { name: "  Scripts: soviet04a.lua" }, { name: "           soviet04a-AI.lua" }, { name: "BriefingVideo: soviet4.vqa" }, { name: "MCV: Buildable: ~disabled" } ] },
+        { id: 100, name: "mod.yaml (Mod Manifest)", path: "mods/ra/mod.yaml", nodeType: "db", pos: { x: 850, y: 12050 }, icon: "📦", columns: [ { name: "Rules: [...]" }, { name: "Sequences: [...]" }, { name: "Missions: missions.yaml" } ] },
+        { id: 101, name: "map.yaml (Instance Data)", path: "maps/1ice6/", nodeType: "db", pos: { x: 850, y: 12350 }, icon: "🗺️", columns: [ { name: "RequiresMod: ts" }, { name: "Tileset: SNOW" }, { name: "Players: Multi0, Multi1..." }, { name: "Actors: (400+ items)" }, { name: "Actor0: aban03" }, { name: "Actor53: mutant" } ] },
+        { id: 102, name: "GeoIP Database", path: "OpenRA.Game/Network/GeoIP.cs", nodeType: "service", pos: { x: 1250, y: 50 }, icon: "🌐", columns: [ { name: "LookupCountry()" }, { name: "fetches IP2LOCATION DB" } ] },
+        { id: 103, name: "afld.shp", path: "mods/cnc/bits/", nodeType: "service", pos: { x: 1250, y: 350 }, icon: "🖼️", columns: [ { name: "Sprite/Animation Data" } ] },
+        { id: 104, name: "cliffsl1.tem", path: "mods/cnc/bits/", nodeType: "service", pos: { x: 1250, y: 650 }, icon: "🎨", columns: [ { name: "Tileset Image Data" } ] },
+        { id: 105, name: "civcapt1.aud", path: "mods/cnc/bits/", nodeType: "service", pos: { x: 1250, y: 950 }, icon: "🔊", columns: [ { name: "Audio Data" } ] },
+        { id: 106, name: "snow.mix", path: "mods/cnc/bits/", nodeType: "service", pos: { x: 1250, y: 1250 }, icon: "📦", columns: [ { name: "Package Archive" } ] },
+        { id: 107, name: "snow.pal", path: "mods/cnc/bits/", nodeType: "service", pos: { x: 1250, y: 1550 }, icon: "🎨", columns: [ { name: "Color Palette" } ] },
+        { id: 108, name: "e1.shp", path: "mods/cnc/bits/", nodeType: "service", pos: { x: 1250, y: 1850 }, icon: "🖼️", columns: [ { name: "Infantry Sprite Data" } ] },
+        { id: 109, name: "mcv.shp", path: "mods/cnc/bits/", nodeType: "service", pos: { x: 1250, y: 2150 }, icon: "🖼️", columns: [ { name: "MCV Sprite Data" } ] },
+        { id: 110, name: "desert.pal", path: "mods/cnc/palettes/", nodeType: "service", pos: { x: 1250, y: 2450 }, icon: "🎨", columns: [ { name: "Color Palette" } ] },
+        { id: 111, name: "ally8.vqa", path: "(videos)/", nodeType: "service", pos: { x: 1250, y: 2750 }, icon: "🎬", columns: [ { name: "Briefing Video Asset" } ] },
+        { id: 112, name: "map.bin", path: "allies-10a/", nodeType: "service", pos: { x: 1250, y: 3050 }, icon: "▦", columns: [ { name: "Binary Terrain Data" } ] },
+        { id: 113, name: "ally10.vqa", path: "(videos)/", nodeType: "service", pos: { x: 1250, y: 3350 }, icon: "🎬", columns: [ { name: "Briefing Video Asset" } ] },
+        { id: 114, name: "map.bin", path: "atreides-05/", nodeType: "service", pos: { x: 1250, y: 3650 }, icon: "▦", columns: [ { name: "Binary Terrain Data" } ] },
+        { id: 115, name: "A_BR05_E.VQA", path: "(videos)/", nodeType: "service", pos: { x: 1250, y: 3950 }, icon: "🎬", columns: [ { name: "Briefing Video Asset" } ] },
+        { id: 116, name: "map.bin", path: "harkonnen-09a/", nodeType: "service", pos: { x: 1250, y: 4250 }, icon: "▦", columns: [ { name: "Binary Terrain Data" } ] },
+        { id: 117, name: "H_BR09_E.VQA", path: "(videos)/", nodeType: "service", pos: { x: 1250, y: 4550 }, icon: "🎬", columns: [ { name: "Briefing Video Asset" } ] },
+        { id: 118, name: "map.bin", path: "ordos-05/", nodeType: "service", pos: { x: 1250, y: 4850 }, icon: "▦", columns: [ { name: "Binary Terrain Data" } ] },
+        { id: 119, name: "O_BR05_E.VQA", path: "(videos)/", nodeType: "service", pos: { x: 1250, y: 5150 }, icon: "🎬", columns: [ { name: "Briefing Video Asset" } ] }
+    ],
+    relationships: [
+        { from: { table: "OpenRA.Launcher", column: "Main(string[] args)" }, to: { table: "Game.cs", column: "InitializeAndRun()" } },
+        { from: { table: "WidgetLoader.cs", column: "LoadWidget()" }, to: { table: "MiniYaml.cs", column: "FromFile()" } },
+        { from: { table: "Game.cs", column: "LogicTick()" }, to: { table: "Widget System", column: "Ui.Tick()" } },
+        { from: { table: "Game.cs", column: "RenderTick()" }, to: { table: "Widget System", column: "Ui.Draw()" } },
+        { from: { table: "Game.cs", column: "LogicTick()" }, to: { table: "OrderManager.cs", column: "TryTick()" } },
+        { from: { table: "OrderManager.cs", column: "TryTick()" }, to: { table: "World.cs", column: "Tick()" } },
+        { from: { table: "World.cs", column: "Tick()" }, to: { table: "Actor.cs", column: "Tick()" } },
+        { from: { table: "Actor.cs", column: "Tick()" }, to: { table: "Activity.cs", column: "TickOuter()" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "Manifest.cs (Mod Definition)", column: "Rules" } },
+        { from: { table: "Manifest.cs (Mod Definition)", column: "Rules" }, to: { table: "MiniYaml.cs", column: "FromStream()" } },
+        { from: { table: "MiniYaml.cs", column: "Merge()" }, to: { table: "Ruleset.cs", column: "LoadDefaults()" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "ActorInfo.cs", column: "Name" } },
+        { from: { table: "ActorInfo.cs", column: "TraitsInConstructOrder()" }, to: { table: "TraitInfo.cs", column: "Create(ActorInitializer)" } },
+        { from: { table: "World.cs", column: "CreateActor()" }, to: { table: "ActorInfo.cs", column: "TraitsInConstructOrder()" } },
+        { from: { table: "World.cs", column: "CreateActor()" }, to: { table: "Actor.cs", column: "Tick()" } },
+        { from: { table: "Actor.cs", column: "TraitsImplementing<T>()" }, to: { table: "TraitDictionary.cs", column: "WithInterface<T>()" } },
+        { from: { table: "TraitDictionary.cs", column: "AddTrait()" }, to: { table: "TraitInfo.cs", column: "Create(ActorInitializer)" } },
+        { from: { table: "OrderManager.cs", column: "ReceiveOrders()" }, to: { table: "Connection.cs", column: "Receive()" } },
+        { from: { table: "Connection.cs", column: "Send()" }, to: { table: "Order.cs", column: "Serialize()" } },
+        { from: { table: "OrderManager.cs", column: "IssueOrder()" }, to: { table: "Order.cs", column: "OrderString" } },
+        { from: { table: "Actor.cs", column: "ResolveOrder()" }, to: { table: "Order.cs", column: "Subject" } },
+        { from: { table: "Game.cs", column: "RenderTick()" }, to: { table: "WorldRenderer.cs", column: "Draw()" } },
+        { from: { table: "WorldRenderer.cs", column: "PrepareRenderables()" }, to: { table: "World.cs", column: "Actors" } },
+        { from: { table: "WorldRenderer.cs", column: "Draw()" }, to: { table: "Map.cs", column: "Tiles (CellLayer)" } },
+        { from: { table: "Sandworm.cs (Mod Trait)", column: "RescanForTargets()" }, to: { table: "AttractsWorms.cs (Mod Trait)", column: "AttractionAtPosition()" } },
+        { from: { table: "Sandworm.cs (Mod Trait)", column: "RescanForTargets()" }, to: { table: "Actor.cs", column: "Tick()" } },
+        { from: { table: "World.cs", column: "Tick()" }, to: { table: "Sandworm.cs (Mod Trait)", column: "Tick()" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "GeoIP Database", column: "fetches IP2LOCATION DB" } },
+        { from: { table: "OpenRA.Launcher", column: "Main(string[] args)" }, to: { table: "Game.cs", column: "InitializeAndRun()" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "MiniYaml.cs", column: "FromFile()" } },
+        { from: { table: "MiniYaml.cs", column: "FromFile()" }, to: { table: "temperat.yaml", column: "General (Tileset Def)" } },
+        { from: { table: "MiniYaml.cs", column: "FromFile()" }, to: { table: "ai.yaml", column: "ModularBot Definitions" } },
+        { from: { table: "MiniYaml.cs", column: "FromFile()" }, to: { table: "aircraft.yaml", column: "TRAN (Transport)" } },
+        { from: { table: "MiniYaml.cs", column: "Merge()" }, to: { table: "Ruleset.cs", column: "LoadDefaults()" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "ActorInfo.cs", column: "Name" } },
+        { from: { table: "temperat.yaml", column: "Templates (Tile Rules)" }, to: { table: "cliffsl1.tem", column: "Tileset Image Data" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "afld.shp", column: "Sprite/Animation Data" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "snow.pal", column: "Color Palette" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "snow.mix", column: "Package Archive" } },
+        { from: { table: "campaign.lua", column: "ReinforceWithLandingCraft()" }, to: { table: "Actor.cs", column: "CreateActor()" } },
+        { from: { table: "campaign.lua", column: "ReinforceWithLandingCraft()" }, to: { table: "Actor.cs", column: "LoadPassenger()" } },
+        { from: { table: "campaign.lua", column: "ReinforceWithLandingCraft()" }, to: { table: "Activity.cs", column: "ScriptedMove()" } },
+        { from: { table: "campaign.lua", column: "ProduceUnits()" }, to: { table: "Actor.cs", column: "Build()" } },
+        { from: { table: "campaign.lua", column: "CheckForBase()" }, to: { table: "World.cs", column: "GetActorsByType()" } },
+        { from: { table: "Actor.cs", column: "ResolveOrder()" }, to: { table: "Order.cs", column: "Target" } },
+        { from: { table: "World.cs", column: "CreateActor()" }, to: { table: "ActorInfo.cs", column: "TraitsInConstructOrder()" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "Map.cs", column: "Actors (Definitions)" } },
+        { from: { table: "mainmenu.yaml", column: "SINGLEPLAYER_BUTTON" }, to: { table: "lobby.yaml", column: "MAP_PREVIEW_ROOT" } },
+        { from: { table: "lobby.yaml", column: "START_GAME_BUTTON" }, to: { table: "Game.cs", column: "InitializeAndRun()" } },
+        { from: { table: "mainmenu.yaml", column: "SINGLEPLAYER_BUTTON" }, to: { table: "WidgetLoader.cs", column: "LoadWidget()" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "nod09/map.yaml", column: "Title: Reinforce Egypt" } },
+        { from: { table: "nod09/map.yaml", column: "Rules: nod09.lua" }, to: { table: "nod09.lua", column: "WorldLoaded()" } },
+        { from: { table: "nod09.lua", column: "SendGDIAirstrike()" }, to: { table: "World.cs", column: "CreateActor()" } },
+        { from: { table: "Game.cs", column: "InitializeAndRun()" }, to: { table: "Ruleset.cs", column: "LoadDefaults()" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "world.yaml", column: "Locomotor@FOOT" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "player.yaml", column: "^BasePlayer" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "infantry.yaml", column: "E1: ^Soldier" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "vehicles.yaml", column: "MCV: ^Vehicle" } },
+        { from: { table: "Ruleset.cs", column: "LoadDefaults()" }, to: { table: "structures.yaml", column: "FACT: ^BaseBuilding" } },
+        { from: { table: "World.cs", column: "CreateActor()" }, to: { table: "Ruleset.cs", column: "Actors (Dictionary)" } },
+        { from: { table: "nod09/map.yaml", column: "Actors: ..." }, to: { table: "infantry.yaml", column: "E1: ^Soldier" } },
+        { from: { table: "infantry.yaml", column: "E1: ^Soldier" }, to: { table: "infantry.yaml (Sequences)", column: "e1:" } },
+        { from: { table: "vehicles.yaml", column: "MCV: ^Vehicle" }, to: { table: "vehicles.yaml (Sequences)", column: "mcv:" } },
+        { from: { table: "infantry.yaml (Sequences)", column: "e1:" }, to: { table: "e1.shp", column: "Infantry Sprite Data" } },
+        { from: { table: "vehicles.yaml (Sequences)", column: "mcv:" }, to: { table: "mcv.shp", column: "MCV Sprite Data" } },
+        { from: { table: "nod09/map.yaml", column: "Tileset: DESERT" }, to: { table: "desert.pal", column: "Color Palette" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('gdi06')" }, to: { table: "map.yaml", column: "Title: Infiltrate Nod Base" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('gdi06')" }, to: { table: "map.bin", column: "Binary Terrain Data" } },
+        { from: { table: "rules.yaml", column: "  Scripts: gdi06.lua" }, to: { table: "gdi06.lua", column: "WorldLoaded()" } },
+        { from: { table: "rules.yaml", column: "BriefingVideo: gdi6.vqa" }, to: { table: "gdi6.vqa", column: "Briefing Video Asset" } },
+        { from: { table: "rules.yaml", column: "MusicPlaylist: rain-ambient" }, to: { table: "rain-ambient.aud", column: "Ambient Audio Data" } },
+        { from: { table: "gdi06.lua", column: "WorldLoaded()" }, to: { table: "campaign.lua", column: "InitObjectives(player)" } },
+        { from: { table: "gdi06.lua", column: "IslandSamSites = {SAM01,..}" }, to: { table: "map.yaml", column: "SAM01: sam" } },
+        { from: { table: "gdi06.lua", column: "unit.Patrol(FootPatrol1Route,...)" }, to: { table: "map.yaml", column: "waypoint10: waypoint" } },
+        { from: { table: "gdi06.lua", column: "Trigger.OnAllKilled(IslandSamSites,..)" }, to: { table: "Actor.cs (Object)", column: "IsDead" } },
+        { from: { table: "Actor.cs (Object)", column: "IsDead" }, to: { table: "gdi06.lua", column: "Trigger.OnAllKilled(IslandSamSites,..)" } },
+        { from: { table: "gdi06.lua", column: "Trigger.OnAllKilled(IslandSamSites,..)" }, to: { table: "World.cs (State)", column: "CreateActor()" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('atreides05')" }, to: { table: "map.yaml", column: "Title: Atreides 05" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('atreides05')" }, to: { table: "map.bin", column: "Binary Terrain Data" } },
+        { from: { table: "rules.yaml", column: "  Scripts: atreides05.lua" }, to: { table: "atreides05.lua", column: "WorldLoaded()" } },
+        { from: { table: "rules.yaml", column: "BriefingVideo: A_BR05_E.VQA" }, to: { table: "A_BR05_E.VQA", column: "Briefing Video Asset" } },
+        { from: { table: "atreides05.lua", column: "WorldLoaded()" }, to: { table: "campaign.lua", column: "InitObjectives(player)" } },
+        { from: { table: "atreides05.lua", column: "WorldLoaded()" }, to: { table: "atreides05-AI.lua", column: "ActivateAI()" } },
+        { from: { table: "atreides05.lua", column: "Trigger.OnCapture(Starport,...)" }, to: { table: "map.yaml", column: "Starport: starport" } },
+        { from: { table: "atreides05.lua", column: "SendHarkonnen()" }, to: { table: "map.yaml", column: "HarkonnenRally1: waypoint" } },
+        { from: { table: "atreides05-AI.lua", column: "ProduceInfantry()" }, to: { table: "World.cs (State)", column: "CreateActor()" } },
+        { from: { table: "atreides05-AI.lua", column: "SendAttack()" }, to: { table: "Actor.cs (Object)", column: "AttackMove()" } },
+        { from: { table: "atreides05.lua", column: "Trigger.OnCapture(Starport,...)" }, to: { table: "Actor.cs (Object)", column: "Capture()" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('harkonnen09a')" }, to: { table: "map.yaml", column: "Title: Harkonnen 09a" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('harkonnen09a')" }, to: { table: "map.bin", column: "Binary Terrain Data" } },
+        { from: { table: "rules.yaml", column: "  Scripts: harkonnen09a.lua" }, to: { table: "harkonnen09a.lua", column: "WorldLoaded()" } },
+        { from: { table: "harkonnen09a.lua", column: "ActivateAI()" }, to: { table: "harkonnen09a-AI.lua", column: "ActivateAI()" } },
+        { from: { table: "rules.yaml", column: "BriefingVideo: H_BR09_E.VQA" }, to: { table: "H_BR09_E.VQA", column: "Briefing Video Asset" } },
+        { from: { table: "harkonnen09a.lua", column: "BuildFremen()" }, to: { table: "map.yaml", column: "APalace: palace" } },
+        { from: { table: "harkonnen09a.lua", column: "BuildFremen()" }, to: { table: "Actor.cs (Object)", column: "Produce()" } },
+        { from: { table: "harkonnen09a.lua", column: "SendAirStrike()" }, to: { table: "Actor.cs (Object)", column: "TargetAirstrike()" } },
+        { from: { table: "harkonnen09a-AI.lua", column: "ProduceUnits(AtreidesMain, ...)" }, to: { table: "World.cs (State)", column: "CreateActor()" } },
+        { from: { table: "harkonnen09a.lua", column: "SendCarryallReinforcements(...)" }, to: { table: "map.yaml", column: "AtreidesRally1: waypoint" } },
+        { from: { table: "harkonnen09a.lua", column: "SendCarryallReinforcements(...)" }, to: { table: "Actor.cs (Object)", column: "AttackMove()" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('ordos05')" }, to: { table: "map.yaml", column: "Title: Ordos 05" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('ordos05')" }, to: { table: "map.bin", column: "Binary Terrain Data" } },
+        { from: { table: "rules.yaml", column: "  Scripts: ordos05.lua" }, to: { table: "ordos05.lua", column: "WorldLoaded()" } },
+        { from: { table: "ordos05.lua", column: "ActivateAI()" }, to: { table: "ordos05-AI.lua", column: "ActivateAI()" } },
+        { from: { table: "rules.yaml", column: "BriefingVideo: O_BR05_E.VQA" }, to: { table: "O_BR05_E.VQA", column: "Briefing Video Asset" } },
+        { from: { table: "ordos05.lua", column: "Trigger.OnCapture(AStarport,...)" }, to: { table: "map.yaml", column: "AStarport: starport" } },
+        { from: { table: "ordos05-AI.lua", column: "ProduceUnits(AtreidesMain,...)" }, to: { table: "map.yaml", column: "ABarracks1: barracks" } },
+        { from: { table: "ordos05.lua", column: "SendCarryallReinforcements(...)" }, to: { table: "map.yaml", column: "AtreidesRally1: waypoint" } },
+        { from: { table: "ordos05.lua", column: "Trigger.OnCapture(AStarport,...)" }, to: { table: "Actor.cs (Object)", column: "Capture()" } },
+        { from: { table: "Actor.cs (Object)", column: "Capture()" }, to: { table: "ordos05.lua", column: "Trigger.OnCapture(AStarport,...)" } },
+        { from: { table: "ordos05.lua", column: "Trigger.OnCapture(AStarport,...)" }, to: { table: "campaign.lua", column: "ReinforceWithTransport(...)" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('allies-06b')" }, to: { table: "map.yaml", column: "Title: Cripple Iron Curtain" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('allies-06b')" }, to: { table: "map.bin", column: "Binary Terrain Data" } },
+        { from: { table: "rules.yaml", column: "  Scripts: allies06b.lua" }, to: { table: "allies06b.lua", column: "WorldLoaded()" } },
+        { from: { table: "allies06b.lua", column: "ActivateAI()" }, to: { table: "allies06b-AI.lua", column: "ActivateAI()" } },
+        { from: { table: "rules.yaml", column: "BriefingVideo: ally6.vqa" }, to: { table: "ally6.vqa", column: "Briefing Video Asset" } },
+        { from: { table: "allies06b.lua", column: "InfiltrateTechCenter()" }, to: { table: "map.yaml", column: "TechLab1: stek" } },
+        { from: { table: "allies06b-AI.lua", column: "ProduceVehicles()" }, to: { table: "map.yaml", column: "WarFactory: weap" } },
+        { from: { table: "allies06b-AI.lua", column: "SendAttack(units, path)" }, to: { table: "map.yaml", column: "SovietBaseAttack: waypoint" } },
+        { from: { table: "allies06b-AI.lua", column: "SendAttack(units, path)" }, to: { table: "Actor.cs (Object)", column: "AttackMove()" } },
+        { from: { table: "allies06b.lua", column: "Trigger.OnInfiltrated(a, ...)" }, to: { table: "Actor.cs (Object)", column: "Infiltrate()" } },
+        { from: { table: "Actor.cs (Object)", column: "Infiltrate()" }, to: { table: "allies06b.lua", column: "Trigger.OnInfiltrated(a, ...)" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('soviet-04a')" }, to: { table: "map.yaml", column: "Title: Behind the Lines" } },
+        { from: { table: "Game.cs (Engine)", column: "LoadMap('soviet-04a')" }, to: { table: "map.bin", column: "Binary Terrain Data" } },
+        { from: { table: "rules.yaml", column: "  Scripts: soviet04a.lua" }, to: { table: "soviet04a.lua", column: "WorldLoaded()" } },
+        { from: { table: "soviet04a.lua", column: "RunInitialActivities()" }, to: { table: "soviet04a-AI.lua", column: "BuildBase()" } },
+        { from: { table: "soviet04a.lua", column: "RunInitialActivities()" }, to: { table: "soviet04a-reinforcements.lua", column: "BringPatrol1()" } },
+        { from: { table: "rules.yaml", column: "BriefingVideo: soviet4.vqa" }, to: { table: "soviet4.vqa", column: "Briefing Video Asset" } },
+        { from: { table: "soviet04a.lua", column: "Trigger.OnKilled(RadarDome, ...)" }, to: { table: "map.yaml", column: "RadarDome: dome" } },
+        { from: { table: "soviet04a-AI.lua", column: "BuildBuilding(building)" }, to: { table: "map.yaml", column: "GreeceCYard: waypoint" } },
+        { from: { table: "soviet04a-AI.lua", column: "SendUnits(units, waypoints)" }, to: { table: "Actor.cs (Object)", column: "AttackMove()" } },
+        { from: { table: "soviet04a-reinforcements.lua", column: "ReinfArmor()" }, to: { table: "soviet04a.lua", column: "Trigger.OnKilled(RadarDome, ...)" } }
+    ]
+};
+
+
+// ===================================================================================
+//  RENDERING LOGIC
+// ===================================================================================
+function initializeCanvas(canvasId, schema) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const transformContainer = canvas.querySelector('.transform-container');
+    const svg = canvas.querySelector('.connections');
+    let state = { scale: 0.7, panX: 50, panY: 50, isPanning: false, lastMouse: { x: 0, y: 0 } };
+
+    function render() {
+        if (!transformContainer || !svg) return;
+        transformContainer.innerHTML = '';
+        transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+        
+        schema.tables.forEach(table => {
+            const node = document.createElement('div');
+            node.id = `${canvasId}-${table.id}`;
+            node.classList.add('node', `${table.nodeType}-node`);
+            node.style.left = `${table.pos.x}px`;
+            node.style.top = `${table.pos.y}px`;
+
+            const header = document.createElement('h3');
+            const pathSpan = table.path ? `<span class="path">${table.path}</span>` : '';
+            header.innerHTML = `${pathSpan}${table.name}`;
+
+            const list = document.createElement('ul');
+            list.innerHTML = table.columns.map(col => {
+                const colName = typeof col === 'string' ? col : col.name;
+                const colType = typeof col === 'string' ? '' : col.type;
+                const colId = colName.replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                return `<li id="${canvasId}-${table.id}-${colId}"><span class="col-name">${colName}</span>${colType ? `<span class="col-type">${colType}</span>` : ''}</li>`;
+            }).join('');
+            
+            if (table.icon) {
+                const iconDisplay = document.createElement('div');
+                iconDisplay.className = 'icon-display';
+                iconDisplay.textContent = table.icon;
+                node.appendChild(iconDisplay);
+            }
+
+            node.appendChild(header);
+            node.appendChild(list);
+            transformContainer.appendChild(node);
+        });
+        updateConnections();
+    }
+    
+    function getElementPortPosition(elId) {
+        const el = document.getElementById(elId);
+        if (!el) return null;
+        const parentNode = el.closest('.node');
+        if (!parentNode) return null;
+        const isNodeConnection = el.classList.contains('node');
+        
+        const parentRect = parentNode.getBoundingClientRect();
+        const elRect = isNodeConnection ? parentRect : el.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        const y = isNodeConnection ? (parentRect.top - canvasRect.top + parentRect.height / 2) : (elRect.top - canvasRect.top + elRect.height / 2);
+        const leftX = (parentRect.left - canvasRect.left);
+        const rightX = (parentRect.right - canvasRect.left);
+
+        return { left: {x: leftX, y: y}, right: {x: rightX, y: y} };
+    }
+
+    function updateConnections() {
+        if (!svg) return;
+        svg.innerHTML = `<defs>
+            <marker id="arrowhead-read-${canvasId}" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7283" /></marker>
+            <marker id="arrowhead-write-${canvasId}" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto"><polygon points="0 0, 12 4.5, 0 9" fill="#86efac" /></marker>
+            <marker id="arrowhead-flow-${canvasId}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#9ca3af" /></marker>
+        </defs>`;
+        
+        const idMap = new Map(schema.tables.map(t => [t.name, t.id]));
+
+        schema.relationships.forEach(rel => {
+            const fromId = idMap.get(rel.from.table);
+            const toId = idMap.get(rel.to.table);
+            if(!fromId || !toId) return;
+
+            let fromColName = typeof rel.from.column === 'string' ? rel.from.column : rel.from.column.name;
+            let toColName = typeof rel.to.column === 'string' ? rel.to.column : rel.to.column.name;
+            
+            let fromElId = `${canvasId}-${fromId}-${fromColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '')}`;
+            if (!document.getElementById(fromElId)) fromElId = `${canvasId}-${fromId}`;
+
+            let toElId = `${canvasId}-${toId}-${toColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '')}`;
+            if (!document.getElementById(toElId)) toElId = `${canvasId}-${toId}`;
+            
+            const fromPorts = getElementPortPosition(fromElId);
+            const toPorts = getElementPortPosition(toElId);
+            if (!fromPorts || !toPorts) return;
+
+            const fromPos = toPorts.right.x < fromPorts.left.x ? fromPorts.left : fromPorts.right;
+            const toPos = toPorts.right.x < fromPorts.left.x ? toPorts.right : toPorts.left;
+            
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', fromPos.x); line.setAttribute('y1', fromPos.y);
+            line.setAttribute('x2', toPos.x); line.setAttribute('y2', toPos.y);
+
+            if (rel.type === 'write') {
+                line.setAttribute('stroke', '#86efac'); line.setAttribute('stroke-width', 4); line.setAttribute('marker-end', `url(#arrowhead-write-${canvasId})`);
+            } else if (rel.type === 'flow') {
+                line.setAttribute('stroke', '#9ca3af'); line.setAttribute('stroke-width', 2); line.setAttribute('stroke-dasharray', `6,6`); line.setAttribute('marker-end', `url(#arrowhead-flow-${canvasId})`);
+            } else {
+                line.setAttribute('stroke', '#6b7283'); line.setAttribute('stroke-width', 2); line.setAttribute('marker-end', `url(#arrowhead-read-${canvasId})`);
+            }
+            svg.appendChild(line);
+        });
+    }
+
+    let activeNode = null, offset = { x: 0, y: 0 };
+    canvas.addEventListener('mousedown', (e) => {
+        const targetNode = e.target.closest('.node');
+        if (targetNode) {
+            activeNode = targetNode;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (!tableData) return;
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            offset.x = mouseX - tableData.pos.x;
+            offset.y = mouseY - tableData.pos.y;
+            activeNode.style.zIndex = 11;
+        } else {
+            state.isPanning = true;
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (activeNode) {
+            e.preventDefault();
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (tableData) {
+                tableData.pos.x = mouseX - offset.x;
+                tableData.pos.y = mouseY - offset.y;
+                activeNode.style.left = `${tableData.pos.x}px`;
+                activeNode.style.top = `${tableData.pos.y}px`;
+                updateConnections();
+            }
+        } else if (state.isPanning) {
+            e.preventDefault();
+            const dx = e.clientX - state.lastMouse.x;
+            const dy = e.clientY - state.lastMouse.y;
+            state.panX += dx;
+            state.panY += dy;
+            transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+            updateConnections();
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (activeNode) { activeNode.style.zIndex = 10; activeNode = null; }
+        state.isPanning = false;
+    });
+    
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const oldScale = state.scale;
+        const zoomFactor = 1.1;
+        state.scale *= e.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+        state.scale = Math.max(0.1, Math.min(state.scale, 2.5));
+        state.panX = mouseX - (mouseX - state.panX) * (state.scale / oldScale);
+        state.panY = mouseY - (mouseY - state.panY) * (state.scale / oldScale);
+        render();
+    });
+
+    render();
+    return { render, updateConnections };
+}
+
+const canvases = [
+    initializeCanvas('canvas-r2', schemaR2),
+    initializeCanvas('canvas-r3', schemaR3),
+    initializeCanvas('canvas-r4', schemaR4)
+];
+
+document.querySelectorAll('.splitter').forEach(splitter => {
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const prevPanel = splitter.previousElementSibling;
+        const startX = e.clientX;
+        const initialPrevWidth = prevPanel.getBoundingClientRect().width;
+        
+        const onMouseMove = (moveEvent) => {
+            let newPrevWidth = initialPrevWidth + (moveEvent.clientX - startX);
+            const MIN_WIDTH = 150;
+            if (newPrevWidth < MIN_WIDTH) newPrevWidth = MIN_WIDTH;
+            prevPanel.style.flex = `0 0 ${newPrevWidth}px`;
+            canvases.forEach(c => c && c.render());
+        };
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+});
+
+window.addEventListener('resize', () => {
+    canvases.forEach(c => c && c.render());
+});
+</script>
+
+</body>
+</html>

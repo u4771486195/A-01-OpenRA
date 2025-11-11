@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Raptor 3: OpenRA Full Architecture Overview</title>
+<style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #111827; color: #d1d5db; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .header { background-color: #1f2937; padding: 1rem 2rem; border-bottom: 1px solid #374151; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+    h1 { color: white; margin: 0; }
+    .controls { display: flex; align-items: center; gap: 20px; }
+    .legend { display: flex; gap: 20px; font-size: 12px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .main-container { display: flex; flex-grow: 1; }
+    .panel { min-width: 150px; height: 100%; display: flex; flex-direction: column; position: relative; }
+    .panel:nth-child(1) { flex: 0 1 15%; }
+    .panel:nth-child(3) { flex: 1 1 70%; }
+    .panel:nth-child(5) { flex: 0 1 15%; }
+
+    .splitter { width: 6px; background-color: #374151; cursor: col-resize; flex-shrink: 0; z-index: 100; }
+    .splitter:hover { background-color: #4b5563; }
+    .panel-header { padding: 1rem; text-align: center; border-bottom: 1px solid #374151; background-color: #1f2937; }
+    .panel-header h2 { margin: 0; font-size: 1.5rem; }
+    .header-r2 { color: #fca5a5; }
+    .header-r3 { color: #86efac; }
+    .header-r4 { color: #c4b5fd; }
+    .canvas { position: relative; width: 100%; flex-grow: 1; overflow: hidden; cursor: grab; }
+    .canvas:active { cursor: grabbing; }
+    .connections { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+    .transform-container { position: absolute; top: 0; left: 0; transform-origin: 0 0; z-index: 2; }
+    
+    .node { position: absolute; border: 3px solid #4b5563; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.3); font-family: monospace; width: 280px; cursor: move; z-index: 10; user-select: none; padding-top: 30px; }
+    .node h3 { padding: 8px 12px 8px 12px; margin: 0; border-bottom: 1px solid rgba(0,0,0,0.2); border-radius: 8px 8px 0 0; font-size: 14px; color: white; word-break: break-all; }
+    .node h3 .path { font-size: 0.8em; color: #9ca3af; display: block; font-weight: normal; }
+    .node ul { list-style: none; padding: 0; margin: 0; }
+    .node li { display: flex; align-items: center; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 12px; position: relative; }
+    .node li:last-child { border-bottom: none; }
+    .node .col-name { font-weight: 500; }
+    .node .col-type { margin-left: auto; color: #9ca3af; }
+
+    .db-node { background-color: rgba(196, 181, 253, 0.15); border-color: #a78bfa; }
+    .db-node h3 { background-color: #8b5cf6; }
+    
+    .ui-node { background-color: rgba(191, 219, 254, 0.15); border-color: #60a5fa; }
+    .ui-node h3 { background-color: #3b82f6; }
+
+    .code-node { background-color: rgba(134, 239, 172, 0.1); border-color: #4ade80; }
+    .code-node h3 { background-color: #22c55e; }
+
+    .service-node { background-color: rgba(252, 165, 165, 0.1); border-color: #f87171; }
+    .service-node h3 { background-color: #ef4444; }
+    
+    .icon-display { position: absolute; top: -32px; left: 50%; transform: translateX(-50%); font-size: 64px; z-index: 12; pointer-events: none; opacity: 0.8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Full Stack Designer - OpenRA Architecture</h1>
+    <div class="controls">
+        <div class="legend">
+             <div class="legend-item"><svg width="10" height="10" style="background:#3b82f6; border-radius:3px;"></svg> UI</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#22c55e; border-radius:3px;"></svg> Code</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#8b5cf6; border-radius:3px;"></svg> Data/Schema</div>
+            <div class="legend-item"><svg width="10" height="10" style="background:#ef4444; border-radius:3px;"></svg> Service</div>
+        </div>
+    </div>
+</div>
+
+<div class="main-container">
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r2">Raptor 2: Legacy</h2></div>
+        <div id="canvas-r2" class="canvas"><svg id="connections-r2" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r3">OpenRA Mod Architecture</h2></div>
+        <div id="canvas-r3" class="canvas"><svg id="connections-r3" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+    <div class="splitter"></div>
+    <div class="panel">
+        <div class="panel-header"><h2 class="header-r4">Raptor 4: Future</h2></div>
+        <div id="canvas-r4" class="canvas"><svg id="connections-r4" class="connections"></svg><div class="transform-container"></div></div>
+    </div>
+</div>
+
+<script>
+// ===================================================================================
+//
+//  DATA SOURCES
+//
+// ===================================================================================
+/*
+    ARCHITECTURAL INSIGHTS FOR FUTURE AI ANALYSIS:
+    This file visualizes the comprehensive architecture of the OpenRA engine and its modding system, using the Red Alert (`ra`) mod as an example. The engine follows a highly data-driven design where C# code provides the core functionality, but almost all game content—units, rules, missions, and assets—is defined in external data files, primarily YAML.
+
+    Key Architectural Flow:
+    1.  **Engine Start:** The `Game.cs` executable launches. It knows about the different mods available.
+    2.  **Mod Loading:** When a mod like `ra` is selected, the engine reads its `mod.yaml` file. This file acts as a manifest, providing a complete list of all other data files to load (rules, sequences, chrome, etc.).
+    3.  **Rule Compilation:** `Ruleset.cs` is responsible for parsing all the YAML files listed under `Rules:`. It starts with `world.yaml` or `defaults.yaml` to create abstract "base classes" for actors (like `^Vehicle` or `^TrackedVehicle`) and then layers on the specific definitions from files like `vehicles.yaml`. This creates a complete, in-memory database of all possible actors.
+    4.  **Map Instantiation:** When a map is chosen (e.g., `a-path-beyond.oramap`), the engine reads its `map.yaml` file. This is an "instance" document.
+        - The `RequiresMod: ra` line confirms the context.
+        - The `Actors:` list contains every object to be placed on the map. For each actor name (e.g., `1TNK`), the engine queries the `Ruleset` for its full definition.
+    5.  **World Creation:** The `World.cs` class uses the data from `map.yaml` and `map.bin` (for terrain geometry) to build the game world. It creates an `Actor.cs` object for every entry in the map's actor list.
+    6.  **Asset Linking:** When a specific actor (like a `1TNK`) needs to be rendered, the engine looks up its name in the appropriate `sequences/*.yaml` file. This file provides the mapping between animation states (`idle`, `move`) and the actual binary sprite file (`1tnk.shp`) that contains the pixel data.
+*/
+const schemaR2 = { tables: [], relationships: [] };
+const schemaR4 = { tables: [], relationships: [] };
+
+const schemaR3 = {
+    tables: [
+        // ======================================================================
+        //  CORE ENGINE (CODE)
+        // ======================================================================
+        { id: 10, name: "Game.cs (Engine)", path:"OpenRA.Game/", nodeType: "code", pos: { x: 50, y: 50 }, icon: "🎮", columns: [{ name: "LoadMod('ra')" }, { name: "LoadMap(mapName)" }] },
+        { id: 11, name: "Ruleset.cs (Data Loader)", path:"OpenRA.Game/GameRules/", nodeType: "code", pos: { x: 50, y: 350 }, icon: "📚", columns: [{ name: "LoadFromMod()" }, { name: "ActorInfoFor(actorName)" }] },
+        { id: 12, name: "World.cs (Game State)", path:"OpenRA.Game/", nodeType: "code", pos: { x: 50, y: 650 }, icon: "🌍", columns: [{ name: "CreateActor(actorInfo)" }] },
+        
+        // ======================================================================
+        //  MOD & MAP DEFINITIONS (DATA/SCHEMA)
+        // ======================================================================
+        { id: 100, name: "mod.yaml (Mod Manifest)", path:"mods/ra/mod.yaml", nodeType: "db", pos: { x: 400, y: 50 }, icon: "📦", columns: [{ name: "Rules: [...]" }, { name: "Sequences: [...]" }, { name: "Missions: missions.yaml" }] },
+        { id: 101, name: "missions.yaml", path:"mods/ra/missions.yaml", nodeType: "db", pos: { x: 400, y: 300 }, icon: "📄", columns: [{ name: "allies-01" }, { name: "soviet-01" }] },
+        { id: 102, name: "map.yaml (Level Instance)", path:"maps/a-path-beyond/", nodeType: "db", pos: { x: 400, y: 550 }, icon: "🗺️", columns: [{ name: "RequiresMod: ra" }, { name: "Actors: 1TNK, E1, ..." }] },
+        
+        // ======================================================================
+        //  RULES PIPELINE (DATA/SCHEMA)
+        // ======================================================================
+        { id: 200, name: "world.yaml (Base Types)", path:"mods/ra/rules/", nodeType: "db", pos: { x: 800, y: 50 }, icon: "📜", columns: [{ name: "^Vehicle" }, { name: "Locomotor@TRACKED" }] },
+        { id: 201, name: "vehicles.yaml", path:"mods/ra/rules/", nodeType: "db", pos: { x: 800, y: 300 }, icon: "🚚", columns: [{ name: "1TNK (Light Tank)" }, { name: "Inherits: ^TrackedVehicle" }, { name: "Armament: Weapon: 25mm" }] },
+        { id: 202, name: "weapons.yaml", path:"mods/ra/weapons/", nodeType: "db", pos: { x: 800, y: 550 }, icon: "💥", columns: [{ name: "25mm:" }, { name: "Range: 4c0" }] },
+
+        // ======================================================================
+        //  UI & ASSET PIPELINE
+        // ======================================================================
+        { id: 300, name: "ingame-player.yaml", path:"mods/ra/chrome/", nodeType: "ui", pos: { x: 1200, y: 50 }, icon: "🖥️", columns: [{ name: "@SIDEBAR_PRODUCTION" }, { name: "@COMMAND_BAR" }] },
+        { id: 301, name: "sequences/vehicles.yaml", path:"mods/ra/sequences/", nodeType: "db", pos: { x: 1200, y: 300 }, icon: "🎬", columns: [{ name: "1tnk:" }, { name: "Filename: 1tnk.shp" }] },
+        { id: 302, name: "1tnk.shp", path:"mods/ra/bits/", nodeType: "service", pos: { x: 1600, y: 300 }, icon: "🖼️", columns: [{ name: "Sprite Data" }] },
+        { id: 303, name: "map.bin", path:"maps/a-path-beyond/", nodeType: "service", pos: { x: 1200, y: 550 }, icon: "▦", columns: [{ name: "Terrain Grid Data" }] },
+        { id: 304, "name": "e1.shp", "path": "mods/ra/bits/", "nodeType": "service", "pos": { "x": 1600, "y": 500 }, "icon": "🚶", "columns": [{ "name": "Infantry Sprite" }] },
+        { id: 305, "name": "gunfire2.aud", "path": "mods/ra/audio/", "nodeType": "service", "pos": { "x": 1600, "y": 700 }, "icon": "🔊", "columns": [{ "name": "Sound Effect" }] }
+    ],
+    relationships: [
+        // 1. Engine loads the Mod
+        { from: { table: "Game.cs (Engine)", column: "LoadMod('ra')" }, to: { table: "mod.yaml (Mod Manifest)", column: "Title: Red Alert" }, type: "read" },
+        
+        // 2. Mod Manifest points to rule files, which are loaded by the Ruleset
+        { from: { table: "mod.yaml (Mod Manifest)", column: "Rules: [...]" }, to: { table: "Ruleset.cs (Data Loader)", column: "LoadFromMod()" }, type: "flow" },
+        { from: { table: "Ruleset.cs (Data Loader)", column: "LoadFromMod()" }, to: { table: "world.yaml (Base Types)", column: "^Vehicle" }, type: "read" },
+        { from: { table: "Ruleset.cs (Data Loader)", column: "LoadFromMod()" }, to: { table: "vehicles.yaml", column: "1TNK (Light Tank)" }, type: "read" },
+
+        // 3. Inheritance and Composition within Rules
+        { from: { table: "vehicles.yaml", column: "Inherits: ^TrackedVehicle" }, to: { table: "world.yaml (Base Types)", column: "^Vehicle" }, type: "read" },
+        { from: { table: "vehicles.yaml", column: "Armament: Weapon: 25mm" }, to: { table: "weapons.yaml", column: "25mm:" }, type: "read" },
+
+        // 4. Engine loads a map
+        { from: { table: "Game.cs (Engine)", column: "LoadMap(mapName)" }, to: { table: "map.yaml (Level Instance)", column: "RequiresMod: ra" }, type: "read" },
+        
+        // 5. World creates actors from the map instance, using the loaded ruleset
+        { from: { table: "World.cs (Game State)", column: "CreateActor(actorInfo)" }, to: { table: "map.yaml (Level Instance)", column: "Actors: 1TNK, E1, ..." }, type: "read" },
+        { from: { table: "map.yaml (Level Instance)", column: "Actors: 1TNK, E1, ..." }, to: { table: "Ruleset.cs (Data Loader)", column: "ActorInfoFor(actorName)" }, type: "read" },
+        { from: { table: "Ruleset.cs (Data Loader)", column: "ActorInfoFor(actorName)" }, to: { table: "vehicles.yaml", column: "1TNK (Light Tank)" }, type: "read" },
+        
+        // 6. Asset & UI Pipeline
+        { from: { table: "vehicles.yaml", column: "1TNK (Light Tank)" }, to: { table: "sequences/vehicles.yaml", column: "1tnk:" }, type: "read" },
+        { from: { table: "sequences/vehicles.yaml", column: "Filename: 1tnk.shp" }, to: { table: "1tnk.shp", column: "Sprite Data" }, type: "read" },
+        { from: { table: "World.cs (Game State)", column: "LoadTerrain()" }, to: { table: "map.bin", column: "Terrain Grid Data" }, type: "read" },
+        { from: { table: "Game.cs (Engine)", column: "LoadMod('ra')" }, to: { table: "ingame-player.yaml", column: "@SIDEBAR_PRODUCTION" }, type: "read" }
+    ]
+};
+
+
+// ===================================================================================
+//  RENDERING LOGIC
+// ===================================================================================
+function initializeCanvas(canvasId, schema) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const transformContainer = canvas.querySelector('.transform-container');
+    const svg = canvas.querySelector('.connections');
+    let state = { scale: 0.7, panX: 50, panY: 50, isPanning: false, lastMouse: { x: 0, y: 0 } };
+
+    function render() {
+        if (!transformContainer || !svg) return;
+        transformContainer.innerHTML = '';
+        transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+        
+        schema.tables.forEach(table => {
+            const node = document.createElement('div');
+            node.id = `${canvasId}-${table.id}`;
+            node.classList.add('node', `${table.nodeType}-node`);
+            node.style.left = `${table.pos.x}px`;
+            node.style.top = `${table.pos.y}px`;
+
+            const header = document.createElement('h3');
+            const pathSpan = table.path ? `<span class="path">${table.path}</span>` : '';
+            header.innerHTML = `${pathSpan}${table.name}`;
+
+            const list = document.createElement('ul');
+            list.innerHTML = table.columns.map(col => {
+                const colName = typeof col === 'string' ? col : col.name;
+                const colType = typeof col === 'string' ? '' : col.type;
+                const colId = colName.replace(/\s+/g, '-').replace(/[^\w-]/g, '');
+                return `<li id="${canvasId}-${table.id}-${colId}"><span class="col-name">${colName}</span>${colType ? `<span class="col-type">${colType}</span>` : ''}</li>`;
+            }).join('');
+            
+            if (table.icon) {
+                const iconDisplay = document.createElement('div');
+                iconDisplay.className = 'icon-display';
+                iconDisplay.textContent = table.icon;
+                node.appendChild(iconDisplay);
+            }
+
+            node.appendChild(header);
+            node.appendChild(list);
+            transformContainer.appendChild(node);
+        });
+        updateConnections();
+    }
+    
+    function getElementPortPosition(elId) {
+        const el = document.getElementById(elId);
+        if (!el) return null;
+        const parentNode = el.closest('.node');
+        if (!parentNode) return null;
+        const isNodeConnection = el.classList.contains('node');
+        
+        const parentRect = parentNode.getBoundingClientRect();
+        const elRect = isNodeConnection ? parentRect : el.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        
+        const y = isNodeConnection ? (parentRect.top - canvasRect.top + parentRect.height / 2) : (elRect.top - canvasRect.top + elRect.height / 2);
+        const leftX = (parentRect.left - canvasRect.left);
+        const rightX = (parentRect.right - canvasRect.left);
+
+        return { left: {x: leftX, y: y}, right: {x: rightX, y: y} };
+    }
+
+    function updateConnections() {
+        if (!svg) return;
+        svg.innerHTML = `<defs>
+            <marker id="arrowhead-read-${canvasId}" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6b7283" /></marker>
+            <marker id="arrowhead-write-${canvasId}" markerWidth="12" markerHeight="9" refX="10" refY="4.5" orient="auto"><polygon points="0 0, 12 4.5, 0 9" fill="#86efac" /></marker>
+            <marker id="arrowhead-flow-${canvasId}" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#9ca3af" /></marker>
+        </defs>`;
+        
+        const idMap = new Map(schema.tables.map(t => [t.name, t.id]));
+
+        schema.relationships.forEach(rel => {
+            const fromId = idMap.get(rel.from.table);
+            const toId = idMap.get(rel.to.table);
+            if(!fromId || !toId) return;
+
+            let fromColName = typeof rel.from.column === 'string' ? rel.from.column : rel.from.column.name;
+            let toColName = typeof rel.to.column === 'string' ? rel.to.column : rel.to.column.name;
+            
+            let fromElId = `${canvasId}-${fromId}-${fromColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '')}`;
+            if (!document.getElementById(fromElId)) fromElId = `${canvasId}-${fromId}`;
+
+            let toElId = `${canvasId}-${toId}-${toColName.replace(/\s+/g, '-').replace(/[^\w-]/g, '')}`;
+            if (!document.getElementById(toElId)) toElId = `${canvasId}-${toId}`;
+            
+            const fromPorts = getElementPortPosition(fromElId);
+            const toPorts = getElementPortPosition(toElId);
+            if (!fromPorts || !toPorts) return;
+
+            const fromPos = toPorts.right.x < fromPorts.left.x ? fromPorts.left : fromPorts.right;
+            const toPos = toPorts.right.x < fromPorts.left.x ? toPorts.right : toPorts.left;
+            
+            const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            line.setAttribute('x1', fromPos.x); line.setAttribute('y1', fromPos.y);
+            line.setAttribute('x2', toPos.x); line.setAttribute('y2', toPos.y);
+
+            if (rel.type === 'write') {
+                line.setAttribute('stroke', '#86efac'); line.setAttribute('stroke-width', 4); line.setAttribute('marker-end', `url(#arrowhead-write-${canvasId})`);
+            } else if (rel.type === 'flow') {
+                line.setAttribute('stroke', '#9ca3af'); line.setAttribute('stroke-width', 2); line.setAttribute('stroke-dasharray', `6,6`); line.setAttribute('marker-end', `url(#arrowhead-flow-${canvasId})`);
+            } else {
+                line.setAttribute('stroke', '#6b7283'); line.setAttribute('stroke-width', 2); line.setAttribute('marker-end', `url(#arrowhead-read-${canvasId})`);
+            }
+            svg.appendChild(line);
+        });
+    }
+
+    let activeNode = null, offset = { x: 0, y: 0 };
+    canvas.addEventListener('mousedown', (e) => {
+        const targetNode = e.target.closest('.node');
+        if (targetNode) {
+            activeNode = targetNode;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (!tableData) return;
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            offset.x = mouseX - tableData.pos.x;
+            offset.y = mouseY - tableData.pos.y;
+            activeNode.style.zIndex = 11;
+        } else {
+            state.isPanning = true;
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (activeNode) {
+            e.preventDefault();
+            const mouseX = (e.clientX - canvas.getBoundingClientRect().left - state.panX) / state.scale;
+            const mouseY = (e.clientY - canvas.getBoundingClientRect().top - state.panY) / state.scale;
+            const tableData = schema.tables.find(t => `${canvasId}-${t.id}` === activeNode.id);
+            if (tableData) {
+                tableData.pos.x = mouseX - offset.x;
+                tableData.pos.y = mouseY - offset.y;
+                activeNode.style.left = `${tableData.pos.x}px`;
+                activeNode.style.top = `${tableData.pos.y}px`;
+                updateConnections();
+            }
+        } else if (state.isPanning) {
+            e.preventDefault();
+            const dx = e.clientX - state.lastMouse.x;
+            const dy = e.clientY - state.lastMouse.y;
+            state.panX += dx;
+            state.panY += dy;
+            transformContainer.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.scale})`;
+            updateConnections();
+            state.lastMouse.x = e.clientX;
+            state.lastMouse.y = e.clientY;
+        }
+    });
+    
+    document.addEventListener('mouseup', () => {
+        if (activeNode) { activeNode.style.zIndex = 10; activeNode = null; }
+        state.isPanning = false;
+    });
+    
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const oldScale = state.scale;
+        const zoomFactor = 1.1;
+        state.scale *= e.deltaY < 0 ? zoomFactor : 1 / zoomFactor;
+        state.scale = Math.max(0.1, Math.min(state.scale, 2.5));
+        state.panX = mouseX - (mouseX - state.panX) * (state.scale / oldScale);
+        state.panY = mouseY - (mouseY - state.panY) * (state.scale / oldScale);
+        render();
+    });
+
+    render();
+    return { render, updateConnections };
+}
+
+const canvases = [
+    initializeCanvas('canvas-r2', schemaR2),
+    initializeCanvas('canvas-r3', schemaR3),
+    initializeCanvas('canvas-r4', schemaR4)
+];
+
+document.querySelectorAll('.splitter').forEach(splitter => {
+    splitter.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const prevPanel = splitter.previousElementSibling;
+        const startX = e.clientX;
+        const initialPrevWidth = prevPanel.getBoundingClientRect().width;
+        
+        const onMouseMove = (moveEvent) => {
+            let newPrevWidth = initialPrevWidth + (moveEvent.clientX - startX);
+            const MIN_WIDTH = 150;
+            if (newPrevWidth < MIN_WIDTH) newPrevWidth = MIN_WIDTH;
+            prevPanel.style.flex = `0 0 ${newPrevWidth}px`;
+            canvases.forEach(c => c && c.render());
+        };
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
+});
+
+window.addEventListener('resize', () => {
+    canvases.forEach(c => c && c.render());
+});
+</script>
+
+</body>
+</html>
